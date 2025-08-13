@@ -44,6 +44,10 @@ function computeCanvasWidth() {
   const extraRight = Math.max(420, Math.floor(Math.min(windowWidth, windowHeight) * 0.9));
   return windowWidth + extraRight;
 }
+function computeCanvasHeight() {
+  const extraBottom = Math.max(180, Math.floor(windowHeight * 0.2));
+  return windowHeight + extraBottom;
+}
 function getRadialCenterX() { return Math.floor(windowWidth / 2); }
 function getRadialCenterY() { return Math.floor(windowHeight / 2); }
 function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
@@ -53,7 +57,7 @@ function preload() {
 }
 
 function setup() {
-  createCanvas(computeCanvasWidth(), windowHeight);
+  createCanvas(computeCanvasWidth(), computeCanvasHeight());
   pixelDensity(2);
   textFont('sans-serif');
   countCategories();
@@ -61,7 +65,7 @@ function setup() {
 }
 
 function windowResized() {
-  resizeCanvas(computeCanvasWidth(), windowHeight);
+  resizeCanvas(computeCanvasWidth(), computeCanvasHeight());
 
   mosaicComputedFor = { w: -1, h: -1 };
 
@@ -682,9 +686,9 @@ function prepareGridLayoutForCategory(catIndex) {
   // Compute grid area on the right side of the screen
 
   const screenLeft = computeGridScreenLeft();
-  const screenTop = 64; // room for title
+  const screenTop = 140; // increased room for title + stats
   const screenRight = width - 24;
-  const screenBottom = height - 24;
+  const screenBottom = height - 36; // extra bottom padding
   const availW = Math.max(40, screenRight - screenLeft);
   const availH = Math.max(40, screenBottom - screenTop);
 
@@ -781,26 +785,46 @@ function drawGridOverlay() {
 
   const screenLeft = computeGridScreenLeft();
   const titleX = screenLeft;
-  const titleY = 24;
+  const titleY = 32;
+  const blockSpacing = 12; // vertical spacing between lines
+  const afterTextPadding = 32; // extra padding below text before grid
 
   textFont('Futura');
   textAlign(LEFT, TOP);
 
-  textSize(28);
+  textSize(32);
   textStyle(BOLD);
   text(title, titleX, titleY);
 
   textStyle(NORMAL);
-  textSize(16);
+  textSize(18);
   const totalLine = (stats.total || 0) + ' images in ' + title.toLowerCase() + ' position';
-  text(totalLine, titleX, titleY + 34);
+  text(totalLine, titleX, titleY + 34 + blockSpacing);
 
   const s1 = 'Selfies: ' + (stats.yes || 0);
   const s2 = 'Non-Selfies: ' + (stats.no || 0);
   const s3 = 'No Selfie Data: ' + (stats.unknown || 0);
-  text(s1, titleX, titleY + 56);
-  text(s2, titleX, titleY + 76);
-  text(s3, titleX, titleY + 96);
+  text(s1, titleX, titleY + 34 + blockSpacing + 26);
+  text(s2, titleX, titleY + 34 + blockSpacing + 26*2);
+  text(s3, titleX, titleY + 34 + blockSpacing + 26*3);
+
+  // Move grid top down if needed
+  const lastTextY = titleY + 34 + blockSpacing + 26*3;
+  if (gridLayout) {
+    const minTop = lastTextY + afterTextPadding - getRadialCenterY();
+    if (gridLayout.top < minTop) {
+      const delta = minTop - gridLayout.top;
+      gridLayout.top += delta;
+      gridLayout.bounds.y1 += delta;
+      gridLayout.bounds.y2 += delta;
+      // Update target Y for mappings
+      for (const k in tileMappingByIndex) {
+        if (!tileMappingByIndex.hasOwnProperty(k)) continue;
+        tileMappingByIndex[k].toY += delta;
+      }
+    }
+  }
+
   pop();
 }
 
