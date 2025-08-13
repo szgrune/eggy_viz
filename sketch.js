@@ -1,15 +1,15 @@
 let photoTable;
 
 const CATEGORY_DISPLAY_ORDER = [
-  'standing on all fours',
-  'standing up on hind legs',
-  'loaf',
-  'curled up',
-  'between legs',
-  'belly up',
-  'pretzel',
-  'laying on side',
-  'other'
+  'Standing on all fours',
+  'Standing up on hind legs',
+  'Loaf',
+  'Curled up',
+  'Sitting on human',
+  'Belly up',
+  'Pretzel',
+  'Laying on side',
+  'Other'
 ];
 
 let categoryCounts = {};
@@ -24,7 +24,7 @@ let mosaicComputedFor = { w: -1, h: -1 };
 
 
 function preload() {
-  photoTable = loadTable('cat_analysis_ref_no_comparison.csv', 'csv', 'header');
+  photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
 }
 
 function setup() {
@@ -104,17 +104,17 @@ function shuffleArrayInPlace(arr) {
 
 function normalizeBodyPosition(value) {
   const s = (value || '').toString().trim().toLowerCase();
-  if (!s) return 'other';
-  if (s.includes('standing') && s.includes('hind')) return 'standing up on hind legs';
-  if (s.includes('standing') && (s.includes('all fours') || s.includes('fours'))) return 'standing on all fours';
-  if (s.includes('loaf')) return 'loaf';
-  if (s.includes('curl')) return 'curled up';
-  if (s.includes('between') && s.includes('legs')) return 'between legs';
-  if (s.includes('belly')) return 'belly up';
-  if (s.includes('pretzel')) return 'pretzel';
-  if ((s.includes('laying') && s.includes('side')) || s.includes('on side')) return 'laying on side';
-  if (s === 'other') return 'other';
-  return 'other';
+  if (!s) return 'Other';
+  if (s.includes('standing') && s.includes('hind')) return 'Standing up on hind legs';
+  if (s.includes('standing') && (s.includes('all fours') || s.includes('fours'))) return 'Standing on all fours';
+  if (s.includes('loaf')) return 'Loaf';
+  if (s.includes('curl')) return 'Curled up';
+  if (s.includes('sitting') && s.includes('human')) return 'Sitting on human';
+  if (s.includes('belly')) return 'Belly up';
+  if (s.includes('pretzel')) return 'Pretzel';
+  if ((s.includes('laying') && s.includes('side')) || s.includes('on side')) return 'Laying on side';
+  if (s === 'other') return 'Other';
+  return 'Other';
 }
 
 function draw() {
@@ -248,14 +248,14 @@ function computeMosaicTiles(r) {
 
 
 function drawCatFaceBase(r) {
+  /*
   push();
   noStroke();
   fill(0, 0, 0, 20);
   ellipse(8, 18, r * 2.06, r * 2.06);
 
   pop();
-
-  drawMosaicTiles();
+  */
 
   // Overdraw ear outlines to keep silhouette readable above mosaic
   const earOffsetX = r * 0.62;
@@ -263,6 +263,8 @@ function drawCatFaceBase(r) {
   const earSize = r * 0.9;
   drawEarOutline(-earOffsetX, earOffsetY, earSize, false);
   drawEarOutline(earOffsetX, earOffsetY, earSize, true);
+  
+  drawMosaicTiles();
 }
 
 function drawMosaicTiles() {
@@ -374,9 +376,9 @@ function drawEarOutline(x, y, size, flip) {
   push();
   translate(x, y);
   rotate(flip ? 0.2 : -0.2);
-  noFill();
+  fill(40, 40, 40, 140);
   stroke(40, 40, 40, 140);
-  strokeWeight(Math.max(1, size * 0.04));
+  //strokeWeight(Math.max(1, size * 0.04));
   const h = size * 0.9;
   const w = size * 0.7;
   triangle(-w * 0.5, h * 0.5, 0, -h * 0.5, w * 0.5, h * 0.5);
@@ -390,32 +392,36 @@ function drawEarOutline(x, y, size, flip) {
 function drawCatFeatures(r) {
   push();
   noStroke();
-  fill(35, 35, 35);
-  const eyeY = -r * 0.15;
-  const eyeX = r * 0.35;
+  fill(180, 190, 129, 200);
+  const eyeY = -r * 0.1;
+  const eyeX = r * 0.5;
   const eyeW = r * 0.18;
   const eyeH = r * 0.22;
   ellipse(-eyeX, eyeY, eyeW, eyeH);
   ellipse(eyeX, eyeY, eyeW, eyeH);
 
-  fill(255, 255, 255, 200);
-  ellipse(-eyeX - eyeW * 0.15, eyeY - eyeH * 0.15, eyeW * 0.18, eyeH * 0.18);
-  ellipse(eyeX - eyeW * 0.15, eyeY - eyeH * 0.15, eyeW * 0.18, eyeH * 0.18);
+  fill(0, 0, 0, 180);
+  ellipse(-eyeX - eyeW * 0.05, eyeY - eyeH * 0.05, eyeW * 0.28, eyeH * 0.68);
+  ellipse(eyeX - eyeW * 0.05, eyeY - eyeH * 0.05, eyeW * 0.28, eyeH * 0.68);
 
   fill(240, 120, 140);
   const noseW = r * 0.14;
   const noseY = r * 0.05;
-  triangle(-noseW * 0.5, noseY, 0, noseY + noseW * 0.35, noseW * 0.5, noseY);
+  push();
+  strokeJoin(ROUND);
+  triangle(-noseW * 0.5, noseY, 0, noseY + noseW * 0.65, noseW * 0.5, noseY);
+  pop();
 
   noFill();
   stroke(80);
   strokeWeight(Math.max(1, r * 0.02));
-  const mouthY = noseY + noseW * 0.4;
-  const mouthR = r * 0.22;
-  arc(-noseW * 0.2, mouthY, mouthR, mouthR * 0.8, 0.15, PI - 0.15);
-  arc(noseW * 0.2, mouthY, mouthR, mouthR * 0.8, 0.15, PI - 0.15);
+  const mouthY = noseY + noseW * 0.5;
+  const mouthR = r * 0.1;
+  arc(-noseW * 0.2, mouthY, mouthR, mouthR * 0.8, 0.75, PI - 0.15);
+  arc(noseW * 0.2, mouthY, mouthR, mouthR * 0.8, 0.15, PI - 0.75);
 
-  stroke(80, 120);
+  /*
+  stroke(255, 100);
   strokeWeight(Math.max(0.5, r * 0.015));
   const whiskerY = noseY + noseW * 0.2;
   for (let i = 0; i < 3; i++) {
@@ -425,6 +431,7 @@ function drawCatFeatures(r) {
     line(r * 0.15, dy, r * 0.65, dy - r * (0.01 + i * 0.03));
     line(r * 0.15, dy, r * 0.65, dy + r * (0.06 + i * 0.02));
   }
+  */
   pop();
 }
 
@@ -442,16 +449,17 @@ function drawTicksAndLabels(radius) {
     const y1 = Math.sin(angle) * (radius - 6);
     const x2 = Math.cos(angle) * (radius + 6);
     const y2 = Math.sin(angle) * (radius + 6);
-    line(x1, y1, x2, y2);
+    line(x1, y1, x2*1.2, y2*1.2);
 
     const lx = Math.cos(angle) * labelRadius;
     const ly = Math.sin(angle) * labelRadius;
     push();
-    translate(lx, ly);
-    rotate(angle);
+    translate(lx*1.33, ly*1.33);
+    //rotate(angle);
     const label = CATEGORY_DISPLAY_ORDER[i];
     noStroke();
-    fill(50);
+    fill(0);
+    textFont("Futura");
     text(shortenLabel(label), 0, 0);
     pop();
   }
@@ -481,7 +489,7 @@ function drawRadialSpikes(innerRadius, maxAdditional) {
   }
 
   noStroke();
-  fill(255, 200, 120, 180);
+  noFill();
   beginShape();
   for (let i = 0; i < n; i++) {
     const count = countsArray[i] || 0;
@@ -494,8 +502,8 @@ function drawRadialSpikes(innerRadius, maxAdditional) {
   }
   endShape(CLOSE);
 
-  noFill();
-  stroke(255, 150, 60);
+  fill(255,255,255,180);
+  stroke(255, 255, 255);
   strokeWeight(2);
   beginShape();
   for (let i = 0; i < n; i++) {
@@ -516,9 +524,10 @@ function drawRadialSpikes(innerRadius, maxAdditional) {
   }
   endShape();
 
+  
   fill(35);
   noStroke();
-  textSize(Math.max(10, innerRadius * 0.15));
+  textSize(Math.max(10, innerRadius * 0.25));
   for (let i = 0; i < n; i++) {
     const count = countsArray[i] || 0;
     const t = maxCount > 0 ? count / maxCount : 0;
@@ -528,8 +537,12 @@ function drawRadialSpikes(innerRadius, maxAdditional) {
     const y = Math.sin(angle) * radius;
     fill(35);
     ellipse(x, y, innerRadius * 0.08, innerRadius * 0.08);
-    fill(20);
+    fill(0, 190, 190);
+    textFont("Futura");
+    textSize(18);
+    textStyle(BOLD);
     text(count, x, y - innerRadius * 0.12);
   }
   pop();
+  
 }
