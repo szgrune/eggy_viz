@@ -45,12 +45,22 @@ function computeCanvasWidth() {
   return windowWidth + extraRight;
 }
 function computeCanvasHeight() {
-  const extraBottom = Math.max(180, Math.floor(windowHeight * 0.2));
-  return windowHeight + extraBottom;
+  return windowHeight;
 }
 function getRadialCenterX() { return Math.floor(windowWidth / 2); }
 function getRadialCenterY() { return Math.floor(windowHeight / 2); }
 function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
+
+// Added: overlay layout constants/helpers
+const OVERLAY_TITLE_Y = 32;
+const OVERLAY_BLOCK_SPACING = 12;
+const OVERLAY_TITLE_OFFSET = 34; // gap below title to first stat line
+const OVERLAY_LINE_HEIGHT = 26;
+const OVERLAY_LINES = 3;
+const OVERLAY_AFTER_TEXT_PADDING = 32;
+function overlayBottomY() {
+  return OVERLAY_TITLE_Y + OVERLAY_TITLE_OFFSET + OVERLAY_BLOCK_SPACING + OVERLAY_LINE_HEIGHT * OVERLAY_LINES;
+}
 
 function preload() {
   photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
@@ -678,15 +688,14 @@ function updateAnimationState() {
   }
 }
 
-function prepareGridLayoutForCategory(catIndex) {
+function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
   const items = (itemsByCategory[catIndex] || []).slice();
   // Sort by hue
   items.sort((a, b) => hueFromHex(a.hex) - hueFromHex(b.hex));
 
   // Compute grid area on the right side of the screen
-
   const screenLeft = computeGridScreenLeft();
-  const screenTop = 140; // increased room for title + stats
+  const screenTop = (overrideScreenTop != null ? overrideScreenTop : (overlayBottomY() + OVERLAY_AFTER_TEXT_PADDING));
   const screenRight = width - 24;
   const screenBottom = height - 36; // extra bottom padding
   const availW = Math.max(40, screenRight - screenLeft);
@@ -698,7 +707,8 @@ function prepareGridLayoutForCategory(catIndex) {
   cols = Math.min(cols, Math.max(1, Math.floor(availW / Math.max(6, mosaicTileSize))));
   cols = Math.max(1, Math.min(cols, n));
   const rows = Math.ceil(n / cols);
-  const tileSize = Math.floor(Math.min(availW / cols, availH / rows));
+  // Scale down slightly to ensure comfortable padding
+  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.9);
 
   const leftWorld = screenLeft - getRadialCenterX();
   const topWorld = screenTop - getRadialCenterY();
@@ -785,9 +795,7 @@ function drawGridOverlay() {
 
   const screenLeft = computeGridScreenLeft();
   const titleX = screenLeft;
-  const titleY = 32;
-  const blockSpacing = 12; // vertical spacing between lines
-  const afterTextPadding = 32; // extra padding below text before grid
+  const titleY = OVERLAY_TITLE_Y;
 
   textFont('Futura');
   textAlign(LEFT, TOP);
@@ -799,31 +807,15 @@ function drawGridOverlay() {
   textStyle(NORMAL);
   textSize(18);
   const totalLine = (stats.total || 0) + ' images in ' + title.toLowerCase() + ' position';
-  text(totalLine, titleX, titleY + 34 + blockSpacing);
+  text(totalLine, titleX, titleY + OVERLAY_TITLE_OFFSET + OVERLAY_BLOCK_SPACING);
 
   const s1 = 'Selfies: ' + (stats.yes || 0);
   const s2 = 'Non-Selfies: ' + (stats.no || 0);
   const s3 = 'No Selfie Data: ' + (stats.unknown || 0);
-  text(s1, titleX, titleY + 34 + blockSpacing + 26);
-  text(s2, titleX, titleY + 34 + blockSpacing + 26*2);
-  text(s3, titleX, titleY + 34 + blockSpacing + 26*3);
-
-  // Move grid top down if needed
-  const lastTextY = titleY + 34 + blockSpacing + 26*3;
-  if (gridLayout) {
-    const minTop = lastTextY + afterTextPadding - getRadialCenterY();
-    if (gridLayout.top < minTop) {
-      const delta = minTop - gridLayout.top;
-      gridLayout.top += delta;
-      gridLayout.bounds.y1 += delta;
-      gridLayout.bounds.y2 += delta;
-      // Update target Y for mappings
-      for (const k in tileMappingByIndex) {
-        if (!tileMappingByIndex.hasOwnProperty(k)) continue;
-        tileMappingByIndex[k].toY += delta;
-      }
-    }
-  }
+  const firstLineY = titleY + OVERLAY_TITLE_OFFSET + OVERLAY_BLOCK_SPACING + OVERLAY_LINE_HEIGHT;
+  text(s1, titleX, firstLineY);
+  text(s2, titleX, firstLineY + OVERLAY_LINE_HEIGHT);
+  text(s3, titleX, firstLineY + OVERLAY_LINE_HEIGHT * 2);
 
   pop();
 }
