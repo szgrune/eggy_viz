@@ -74,6 +74,30 @@ def parse_args() -> argparse.Namespace:
             "If provided with --use-clip, images will be classified by similarity to reference images."
         ),
     )
+    parser.add_argument(
+        "--human-threshold",
+        type=float,
+        default=0.38,
+        help="Minimum CLIP score required to tag 'sitting on human' (to reduce false positives)",
+    )
+    parser.add_argument(
+        "--human-margin",
+        type=float,
+        default=0.08,
+        help="Minimum score margin vs next best label to accept 'sitting on human'",
+    )
+    parser.add_argument(
+        "--human-presence-threshold",
+        type=float,
+        default=0.30,
+        help="Minimum CLIP score to consider a human present in the image",
+    )
+    parser.add_argument(
+        "--human-presence-margin",
+        type=float,
+        default=0.05,
+        help="Minimum score margin to accept human presence vs no-human",
+    )
     return parser.parse_args()
 
 
@@ -320,7 +344,7 @@ def get_body_position_classes() -> List[BodyClass]:
         ("standing up on hind legs", "a photo of a cat standing up on its hind legs"),
         ("loaf", "a photo of a cat in a loaf pose with paws tucked under its body"),
         ("curled up", "a photo of a cat curled up in a circle"),
-        ("between legs", "a photo of a cat sitting between a person's legs"),
+        ("sitting on human", "a photo of a cat sitting on a human's lap, leg, or chest where the human's body or clothing is visible"),
         ("belly up", "a photo of a cat lying on its back with its belly up"),
         ("pretzel", "a photo of a cat twisted like a pretzel"),
         ("laying on side", "a photo of a cat lying on its side"),
@@ -328,7 +352,12 @@ def get_body_position_classes() -> List[BodyClass]:
     ]
 
 
-def classify_body_positions_with_clip(images: List["Image.Image"], device: str) -> List[str]:
+def classify_body_positions_with_clip(
+    images: List["Image.Image"],
+    device: str,
+    human_threshold: float = 0.38,
+    human_margin: float = 0.08,
+) -> List[str]:
     pipeline = ensure_clip_pipeline(device)
     classes = get_body_position_classes()
     labels = [c[1] for c in classes]
@@ -337,20 +366,139 @@ def classify_body_positions_with_clip(images: List["Image.Image"], device: str) 
     # Handle single image case where pipeline returns dict rather than list
     if isinstance(results, dict):
         results = [results]
+    # Identify which candidate corresponds to 'sitting on human'
+    human_cand = next((cand for name, cand in classes if name == "sitting on human"), None)
     for res in results:  # type: ignore
-        # res: list of dicts with 'label' (candidate string) and 'score'
-        if isinstance(res, list):
-            best = max(res, key=lambda x: x["score"]) if res else None
-            if best is None:
-                predictions.append("other")
-                continue
-            label_str = best["label"]
-        else:
-            label_str = res.get("label", "")  # type: ignore
-        # Map back to our canonical label
-        mapped = next((name for name, cand in classes if cand == label_str), "other")
+        # res: list of dicts with 'label' and 'score'
+        if not isinstance(res, list) or not res:
+            predictions.append("other")
+            continue
+        # Compute best label overall
+        sorted_res = sorted(res, key=lambda x: x.get("score", 0.0), reverse=True)
+        best = sorted_res[0]
+        second_best_score = sorted_res[1]["score"] if len(sorted_res) > 1 else 0.0
+        best_label_str = best["label"]
+        # Human-specific conservative thresholding
+        if human_cand is not None:
+            human_entry = next((x for x in res if x.get("label") == human_cand), None)
+            human_score = float(human_entry.get("score", 0.0)) if human_entry else 0.0
+            if best_label_str == human_cand:
+                # Accept only if confident and with margin over next best
+                if human_score >= human_threshold and (human_score - second_best_score) >= human_margin:
+                    predictions.append("sitting on human")
+                    continue
+                else:
+                    # Do not force 'sitting on human'; pick next best non-human or 'other'
+                    non_human_best = next((x for x in sorted_res if x.get("label") != human_cand), None)
+                    if non_human_best is not None:
+                        best_label_str = non_human_best.get("label", "")
+                    else:
+                        predictions.append("other")
+                        continue
+            else:
+                # If not best overall, still allow upgrade to human if very confident
+                if human_score >= (human_threshold + 0.1):
+                    predictions.append("sitting on human")
+                    continue
+        # Map to canonical label
+        mapped = next((name for name, cand in classes if cand == best_label_str), "other")
         predictions.append(mapped)
     return predictions
+
+# New: human presence gating
+
+def classify_human_presence(
+    images: List["Image.Image"],
+    device: str,
+    threshold: float = 0.30,
+    margin: float = 0.05,
+) -> List[bool]:
+    pipeline = ensure_clip_pipeline(device)
+    candidates = [
+        "a photo that contains a person or human",
+        "a photo without any person or human",
+    ]
+    results = pipeline(images, candidate_labels=candidates)
+    flags: List[bool] = []
+    if isinstance(results, dict):
+        results = [results]
+    for res in results:  # type: ignore
+        if not isinstance(res, list) or not res:
+            flags.append(False)
+            continue
+        sorted_res = sorted(res, key=lambda x: x.get("score", 0.0), reverse=True)
+        best = sorted_res[0]
+        second = sorted_res[1]["score"] if len(sorted_res) > 1 else 0.0
+        has_human = best["label"] == candidates[0] and best["score"] >= threshold and (best["score"] - second) >= margin
+        flags.append(bool(has_human))
+    return flags
+
+# New: explicit "sitting on human" detector with synonyms and negatives
+
+def detect_sitting_on_human(
+    images: List["Image.Image"],
+    device: str,
+    pos_threshold: float = 0.35,
+    margin: float = 0.10,
+) -> List[bool]:
+    pipeline = ensure_clip_pipeline(device)
+    positive = [
+        "a photo of a cat sitting on a human's lap",
+        "a photo of a cat sitting on a person's lap",
+        "a photo of a cat sitting on a person's legs",
+        "a photo of a cat sitting on a human chest",
+        "a photo of a cat lying on a human chest",
+        "a photo of a cat laying on a person's lap",
+    ]
+    negatives = [
+        "a photo of a cat sitting on a sofa",
+        "a photo of a cat sitting on a chair",
+        "a photo of a cat sitting on a bed",
+        "a photo of a cat sitting on a blanket",
+        "a photo of a cat sitting on the floor",
+        "a photo of a cat next to a human but not on them",
+        "a photo of a cat between furniture legs",
+    ]
+    labels = positive + negatives
+    results = pipeline(images, candidate_labels=labels)
+    flags: List[bool] = []
+    if isinstance(results, dict):
+        results = [results]
+    for res in results:  # type: ignore
+        if not isinstance(res, list) or not res:
+            flags.append(False)
+            continue
+        # Scores
+        pos_score = max((float(x.get("score", 0.0)) for x in res if x.get("label") in positive), default=0.0)
+        best_label = max(res, key=lambda x: x.get("score", 0.0)).get("label")
+        best_score = max((float(x.get("score", 0.0)) for x in res), default=0.0)
+        neg_score = max((float(x.get("score", 0.0)) for x in res if x.get("label") in negatives), default=0.0)
+        # Require positive score, to be top or near-top, and margin over negatives
+        ok = (pos_score >= pos_threshold) and ((best_label in positive) or (pos_score >= best_score - 0.02)) and ((pos_score - neg_score) >= margin)
+        flags.append(bool(ok))
+    return flags
+
+# New: general positions excluding the human label
+
+def classify_general_positions_without_human(
+    images: List["Image.Image"],
+    device: str,
+) -> List[str]:
+    pipeline = ensure_clip_pipeline(device)
+    classes = [(n, c) for (n, c) in get_body_position_classes() if n != "sitting on human"]
+    labels = [c for (_n, c) in classes]
+    results = pipeline(images, candidate_labels=labels)
+    preds: List[str] = []
+    if isinstance(results, dict):
+        results = [results]
+    for res in results:  # type: ignore
+        if not isinstance(res, list) or not res:
+            preds.append("other")
+            continue
+        best_label_str = max(res, key=lambda x: x.get("score", 0.0)).get("label", "")
+        mapped = next((name for name, cand in classes if cand == best_label_str), "other")
+        preds.append(mapped)
+    return preds
 
 # --- New: reference-based CLIP embedding classification ---
 
@@ -394,7 +542,7 @@ def canonicalize_label(raw: str) -> str:
         "side": "laying on side",
         "lying on side": "laying on side",
         "laying on side": "laying on side",
-        "between legs": "between legs",
+        "between legs": "sitting on human",
         "pretzel": "pretzel",
         "other": "other",
     }
@@ -417,7 +565,7 @@ def canonicalize_label(raw: str) -> str:
     if "side" in name:
         return "laying on side"
     if "between" in name and "leg" in name:
-        return "between legs"
+        return "sitting on human"
     if "loaf" in name:
         return "loaf"
     if "pretzel" in name:
@@ -614,14 +762,20 @@ def analyze_batch(
             clip_indices.append(idx)
         if images_for_clip:
             try:
-                # Prefer reference-based if ref embeddings available
-                preds = (
-                    classify_with_clip_refs(images_for_clip, args.device)
-                    if _REF_EMB is not None
-                    else classify_body_positions_with_clip(images_for_clip, args.device)
+                # If ref embeddings were previously loaded explicitly, ignore them for this run (user requested no comparisons)
+                # Two-stage: human presence gate -> sitting-on-human detector -> general classifier without human label
+                human_flags = classify_human_presence(
+                    images_for_clip, args.device, args.human_presence_threshold, args.human_presence_margin
                 )
-                for idx, pred in zip(clip_indices, preds):
-                    rows[idx]["body_position"] = pred
+                sitting_flags = detect_sitting_on_human(
+                    images_for_clip, args.device, args.human_threshold, args.human_margin
+                )
+                general_preds = classify_general_positions_without_human(images_for_clip, args.device)
+                for out_idx, img_idx in enumerate(clip_indices):
+                    if human_flags[out_idx] and sitting_flags[out_idx]:
+                        rows[img_idx]["body_position"] = "sitting on human"
+                    else:
+                        rows[img_idx]["body_position"] = general_preds[out_idx]
             except Exception:
                 for idx in clip_indices:
                     rows[idx]["body_position"] = "other"
