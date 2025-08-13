@@ -464,11 +464,11 @@ def load_reference_embeddings(ref_dir: str, device: str) -> None:
                 continue
             label_to_paths.setdefault(label, []).extend(paths)
     else:
-        # Flat: try filename prefix before first space/underscore/dash as label
+        # Flat: use filename stem (no extension) as label
         for p in _list_images_in_dir(ref_dir):
             base = os.path.basename(p)
-            token = base.split(" ")[0].split("_")[0].split("-")[0]
-            label = canonicalize_label(token)
+            stem, _ext = os.path.splitext(base)
+            label = canonicalize_label(stem)
             label_to_paths.setdefault(label, []).append(p)
 
     if not label_to_paths:
