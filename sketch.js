@@ -38,13 +38,22 @@ let interactionState = {
 let tileMappingByIndex = {}; // tileIndex -> { toX, toY, toSize, targetHex }
 let gridLayout = null;      // { left, top, cols, rows, tileSize, bounds:{x1,y1,x2,y2}, title:string }
 
+// Added: canvas sizing and positioning helpers
+let currentFaceRadius = 0;
+function computeCanvasWidth() {
+  const extraRight = Math.max(420, Math.floor(Math.min(windowWidth, windowHeight) * 0.9));
+  return windowWidth + extraRight;
+}
+function getRadialCenterX() { return Math.floor(windowWidth / 2); }
+function getRadialCenterY() { return Math.floor(windowHeight / 2); }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
 
 function preload() {
   photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
 }
 
 function setup() {
-  createCanvas(windowWidth, windowHeight);
+  createCanvas(computeCanvasWidth(), windowHeight);
   pixelDensity(2);
   textFont('sans-serif');
   countCategories();
@@ -52,7 +61,7 @@ function setup() {
 }
 
 function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
+  resizeCanvas(computeCanvasWidth(), windowHeight);
 
   mosaicComputedFor = { w: -1, h: -1 };
 
@@ -146,9 +155,14 @@ function draw() {
   // Added: update animation progress if needed
   updateAnimationState();
 
-  translate(width / 2, height / 2);
+  //translate(width / 2, height / 2);
 
-  const faceRadius = Math.min(width, height) * 0.28;
+  const radialCX = getRadialCenterX();
+  const radialCY = getRadialCenterY();
+  translate(radialCX, radialCY);
+
+  const faceRadius = Math.min(windowWidth, windowHeight) * 0.28;
+  currentFaceRadius = faceRadius;
 
 
   ensureMosaicComputed(faceRadius);
@@ -666,7 +680,8 @@ function prepareGridLayoutForCategory(catIndex) {
   items.sort((a, b) => hueFromHex(a.hex) - hueFromHex(b.hex));
 
   // Compute grid area on the right side of the screen
-  const screenLeft = width * 0.58;
+
+  const screenLeft = computeGridScreenLeft();
   const screenTop = 64; // room for title
   const screenRight = width - 24;
   const screenBottom = height - 24;
@@ -681,8 +696,8 @@ function prepareGridLayoutForCategory(catIndex) {
   const rows = Math.ceil(n / cols);
   const tileSize = Math.floor(Math.min(availW / cols, availH / rows));
 
-  const leftWorld = screenLeft - width / 2;
-  const topWorld = screenTop - height / 2;
+  const leftWorld = screenLeft - getRadialCenterX();
+  const topWorld = screenTop - getRadialCenterY();
 
   gridLayout = {
     left: leftWorld,
@@ -764,7 +779,7 @@ function drawGridOverlay() {
   const title = CATEGORY_DISPLAY_ORDER[sel];
   const stats = selfieStatsByCategory[sel] || { total: 0, yes: 0, no: 0, unknown: 0 };
 
-  const screenLeft = width * 0.58;
+  const screenLeft = computeGridScreenLeft();
   const titleX = screenLeft;
   const titleY = 24;
 
@@ -829,8 +844,8 @@ function easeInOutCubic(t) {
 // Hit-testing and interaction
 function mousePressed() {
   // Convert to world coordinates (after draw translates by width/2,height/2)
-  const wx = mouseX - width / 2;
-  const wy = mouseY - height / 2;
+  const wx = mouseX - getRadialCenterX();
+  const wy = mouseY - getRadialCenterY();
 
   if (interactionState.animating) return;
 
