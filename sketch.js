@@ -22,6 +22,22 @@ let mosaicTiles = [];
 let mosaicTileSize = 10;
 let mosaicComputedFor = { w: -1, h: -1 };
 
+// Added: per-category items and selfie stats, label hitboxes, and interaction/animation state
+let itemsByCategory = [];
+let selfieStatsByCategory = [];
+let labelHitboxes = [];
+let interactionState = {
+  mode: 'radial', // 'radial' | 'grid'
+  selectedCategoryIndex: -1,
+  animating: false,
+  animationStartMs: 0,
+  animationDurationMs: 1200,
+  animationDirection: 0, // 1 to grid, -1 to radial
+  progress: 0
+};
+let tileMappingByIndex = {}; // tileIndex -> { toX, toY, toSize, targetHex }
+let gridLayout = null;      // { left, top, cols, rows, tileSize, bounds:{x1,y1,x2,y2}, title:string }
+
 
 function preload() {
   photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
@@ -39,6 +55,10 @@ function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 
   mosaicComputedFor = { w: -1, h: -1 };
+
+  if (interactionState && interactionState.selectedCategoryIndex >= 0) {
+    prepareGridLayoutForCategory(interactionState.selectedCategoryIndex);
+  }
 
   redraw();
 }
@@ -83,6 +103,9 @@ function countCategories() {
   for (let i = 0; i < CATEGORY_DISPLAY_ORDER.length; i++) {
     categoryCenterAngles.push(-HALF_PI + (i * TWO_PI) / CATEGORY_DISPLAY_ORDER.length);
   }
+
+  // Added: build per-category items and selfie stats for later grid view
+  computeCategoryItemsAndSelfieStats();
 }
 
 function sanitizeHex(value) {
@@ -120,6 +143,9 @@ function normalizeBodyPosition(value) {
 function draw() {
   background(253, 250, 246);
 
+  // Added: update animation progress if needed
+  updateAnimationState();
+
   translate(width / 2, height / 2);
 
   const faceRadius = Math.min(width, height) * 0.28;
@@ -136,6 +162,9 @@ function draw() {
   drawTicksAndLabels(tickRadius);
   drawRadialSpikes(innerRadius, maxAdditional);
   drawCatFeatures(faceRadius);
+
+  // Added: overlay for grid view (titles/counts)
+  drawGridOverlay();
 }
 
 
@@ -273,9 +302,12 @@ function drawMosaicTiles() {
   noStroke();
   for (let i = 0; i < mosaicTiles.length; i++) {
     const t = mosaicTiles[i];
-    fill(t.hex);
+    // Added: compute animated rendering params for selected category
+    const render = getTileRenderParams(i, t);
+    if (!render.visible) continue;
+    fill(render.hex);
     rectMode(CENTER);
-    rect(t.x, t.y, t.size, t.size, t.size * 0.15);
+    rect(render.x, render.y, render.size, render.size, render.size * 0.15);
   }
   pop();
 }
@@ -355,7 +387,6 @@ function angularDistance(a, b) {
   let d = Math.abs(a - b) % TWO_PI;
   return d > PI ? TWO_PI - d : d;
 }
-
 
 function drawEar(x, y, size, flip) {
   push();
@@ -443,6 +474,8 @@ function drawTicksAndLabels(radius) {
   textSize(Math.max(10, radius * 0.09));
   textAlign(CENTER, CENTER);
   const labelRadius = radius * 1.1;
+  // Added: reset hitboxes for this frame
+  labelHitboxes = CATEGORY_DISPLAY_ORDER.map(() => null);
   for (let i = 0; i < CATEGORY_DISPLAY_ORDER.length; i++) {
     const angle = -HALF_PI + (i * TWO_PI) / CATEGORY_DISPLAY_ORDER.length;
     const x1 = Math.cos(angle) * (radius - 6);
@@ -462,6 +495,18 @@ function drawTicksAndLabels(radius) {
     textFont("Futura");
     text(shortenLabel(label), 0, 0);
     pop();
+
+    // Added: compute a conservative hitbox around rendered text (centered at lx*1.33, ly*1.33)
+    const ts = Math.max(10, radius * 0.09);
+    const shortLabel = shortenLabel(CATEGORY_DISPLAY_ORDER[i]);
+    const lines = shortLabel.split('\n');
+    let maxW = 0;
+    for (let k = 0; k < lines.length; k++) {
+      maxW = Math.max(maxW, textWidth(lines[k]));
+    }
+    const h = lines.length * ts * 1.15;
+    const w = maxW;
+    labelHitboxes[i] = { x: lx*1.33, y: ly*1.33, w: w + 10, h: h + 8 };
   }
   pop();
 }
@@ -545,4 +590,298 @@ function drawRadialSpikes(innerRadius, maxAdditional) {
   }
   pop();
   
+}
+
+// Added: Build per-category items and selfie stats for grid view
+function computeCategoryItemsAndSelfieStats() {
+  itemsByCategory = CATEGORY_DISPLAY_ORDER.map(() => []);
+  selfieStatsByCategory = CATEGORY_DISPLAY_ORDER.map(() => ({ yes: 0, no: 0, unknown: 0, total: 0 }));
+  if (!photoTable) return;
+  for (let r = 0; r < photoTable.getRowCount(); r++) {
+    const rawLabel = photoTable.getString(r, 'body_position');
+    const normalized = normalizeBodyPosition(rawLabel);
+    const idx = CATEGORY_DISPLAY_ORDER.indexOf(normalized);
+    if (idx < 0) continue;
+    const hex = sanitizeHex(photoTable.getString(r, 'average_hex_color'));
+    const selfieRaw = (photoTable.getString(r, 'is_selfie') || '').toString().trim().toLowerCase();
+    const selfie = selfieRaw === 'yes' ? 'yes' : (selfieRaw === 'no' ? 'no' : 'unknown');
+    itemsByCategory[idx].push({ hex, selfie });
+    selfieStatsByCategory[idx].total += 1;
+    selfieStatsByCategory[idx][selfie] += 1;
+  }
+}
+
+// Added: Animation and grid helpers
+function startEnterAnimation(catIndex) {
+  if (catIndex < 0 || catIndex >= CATEGORY_DISPLAY_ORDER.length) return;
+  interactionState.selectedCategoryIndex = catIndex;
+  prepareGridLayoutForCategory(catIndex);
+  interactionState.animating = true;
+  interactionState.animationStartMs = millis();
+  interactionState.animationDirection = 1;
+  interactionState.progress = 0;
+  interactionState.mode = 'radial';
+  loop();
+}
+
+function startExitAnimation() {
+  if (interactionState.selectedCategoryIndex < 0) return;
+  interactionState.animating = true;
+  interactionState.animationStartMs = millis();
+  interactionState.animationDirection = -1;
+  interactionState.progress = 1;
+  loop();
+}
+
+function updateAnimationState() {
+  if (!interactionState.animating) return;
+  const now = millis();
+  const t = constrain((now - interactionState.animationStartMs) / Math.max(1, interactionState.animationDurationMs), 0, 1);
+  const e = easeInOutCubic(t);
+  if (interactionState.animationDirection === 1) {
+    interactionState.progress = e;
+    if (t >= 1) {
+      interactionState.animating = false;
+      interactionState.mode = 'grid';
+      interactionState.progress = 1;
+      noLoop();
+    }
+  } else if (interactionState.animationDirection === -1) {
+    interactionState.progress = 1 - e;
+    if (t >= 1) {
+      interactionState.animating = false;
+      interactionState.mode = 'radial';
+      interactionState.selectedCategoryIndex = -1;
+      tileMappingByIndex = {};
+      gridLayout = null;
+      interactionState.progress = 0;
+      noLoop();
+    }
+  }
+}
+
+function prepareGridLayoutForCategory(catIndex) {
+  const items = (itemsByCategory[catIndex] || []).slice();
+  // Sort by hue
+  items.sort((a, b) => hueFromHex(a.hex) - hueFromHex(b.hex));
+
+  // Compute grid area on the right side of the screen
+  const screenLeft = width * 0.58;
+  const screenTop = 64; // room for title
+  const screenRight = width - 24;
+  const screenBottom = height - 24;
+  const availW = Math.max(40, screenRight - screenLeft);
+  const availH = Math.max(40, screenBottom - screenTop);
+
+  const n = Math.max(1, items.length);
+  // Choose columns to roughly square the grid
+  let cols = Math.max(1, Math.floor(Math.sqrt(n * (availW / Math.max(1, availH)))));
+  cols = Math.min(cols, Math.max(1, Math.floor(availW / Math.max(6, mosaicTileSize))));
+  cols = Math.max(1, Math.min(cols, n));
+  const rows = Math.ceil(n / cols);
+  const tileSize = Math.floor(Math.min(availW / cols, availH / rows));
+
+  const leftWorld = screenLeft - width / 2;
+  const topWorld = screenTop - height / 2;
+
+  gridLayout = {
+    left: leftWorld,
+    top: topWorld,
+    cols,
+    rows,
+    tileSize,
+    title: CATEGORY_DISPLAY_ORDER[catIndex],
+    bounds: {
+      x1: leftWorld + tileSize * 0.5,
+      y1: topWorld + tileSize * 0.5,
+      x2: leftWorld + cols * tileSize - tileSize * 0.5,
+      y2: topWorld + rows * tileSize - tileSize * 0.5
+    }
+  };
+
+  // Map from existing mosaic tiles of this category to target grid cells
+  const tileIndices = [];
+  for (let i = 0; i < mosaicTiles.length; i++) {
+    if (mosaicTiles[i].catIndex === catIndex) tileIndices.push(i);
+  }
+  tileMappingByIndex = {};
+  for (let i = 0; i < items.length && i < tileIndices.length; i++) {
+    const idx = tileIndices[i];
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const toX = leftWorld + col * tileSize + tileSize * 0.5;
+    const toY = topWorld + row * tileSize + tileSize * 0.5;
+    tileMappingByIndex[idx] = {
+      toX,
+      toY,
+      toSize: tileSize,
+      targetHex: items[i].hex
+    };
+  }
+}
+
+function getTileRenderParams(i, t) {
+  // Default: render as-is
+  let x = t.x;
+  let y = t.y;
+  let size = t.size;
+  let hex = t.hex;
+  let visible = true;
+
+  const sel = interactionState.selectedCategoryIndex;
+  const p = interactionState.progress;
+  const mapping = tileMappingByIndex[i];
+
+  if (sel >= 0 && t.catIndex === sel && mapping) {
+    // Animate from radial position to grid position
+    const u = p; // already eased
+    x = lerp(t.x, mapping.toX, u);
+    y = lerp(t.y, mapping.toY, u);
+    size = lerp(t.size, mapping.toSize, u);
+    // Switch to target hex halfway-through for a clean hue-sorted grid
+    hex = u < 0.5 ? t.hex : mapping.targetHex;
+  }
+
+  // When returning to radial, mapping still exists but progress decreases
+  // When no category selected, ensure all tiles show
+  return { x, y, size, hex, visible };
+}
+
+function drawGridOverlay() {
+  const sel = interactionState.selectedCategoryIndex;
+  if (sel < 0 || !gridLayout) return;
+
+  // Determine alpha based on progress to fade in text
+  const p = interactionState.progress;
+  const alpha = Math.floor(255 * constrain(p, 0, 1));
+
+  // Use screen coordinates
+  push();
+  resetMatrix();
+  noStroke();
+  fill(20, 20, 20, alpha);
+
+  const title = CATEGORY_DISPLAY_ORDER[sel];
+  const stats = selfieStatsByCategory[sel] || { total: 0, yes: 0, no: 0, unknown: 0 };
+
+  const screenLeft = width * 0.58;
+  const titleX = screenLeft;
+  const titleY = 24;
+
+  textFont('Futura');
+  textAlign(LEFT, TOP);
+
+  textSize(28);
+  textStyle(BOLD);
+  text(title, titleX, titleY);
+
+  textStyle(NORMAL);
+  textSize(16);
+  const totalLine = (stats.total || 0) + ' images in ' + title.toLowerCase() + ' position';
+  text(totalLine, titleX, titleY + 34);
+
+  const s1 = 'Selfies: ' + (stats.yes || 0);
+  const s2 = 'Non-Selfies: ' + (stats.no || 0);
+  const s3 = 'No Selfie Data: ' + (stats.unknown || 0);
+  text(s1, titleX, titleY + 56);
+  text(s2, titleX, titleY + 76);
+  text(s3, titleX, titleY + 96);
+  pop();
+}
+
+function hueFromHex(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const { h } = rgbToHsl(r, g, b);
+  return h;
+}
+
+function hexToRgb(hex) {
+  const s = sanitizeHex(hex).slice(1);
+  const r = parseInt(s.substring(0, 2), 16);
+  const g = parseInt(s.substring(2, 4), 16);
+  const b = parseInt(s.substring(4, 6), 16);
+  return { r, g, b };
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) {
+    h = s = 0;
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return { h: h * 360, s, l };
+}
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// Hit-testing and interaction
+function mousePressed() {
+  // Convert to world coordinates (after draw translates by width/2,height/2)
+  const wx = mouseX - width / 2;
+  const wy = mouseY - height / 2;
+
+  if (interactionState.animating) return;
+
+  if (interactionState.mode === 'radial') {
+    // 1) Hit test labels
+    const li = hitTestLabel(wx, wy);
+    if (li >= 0) {
+      startEnterAnimation(li);
+      return;
+    }
+    // 2) Hit test tiles
+    const ti = hitTestTile(wx, wy);
+    if (ti >= 0) {
+      startEnterAnimation(mosaicTiles[ti].catIndex);
+      return;
+    }
+  } else if (interactionState.mode === 'grid') {
+    // Click outside the grid bounds returns to radial
+    if (!isPointInsideBounds(wx, wy, gridLayout && gridLayout.bounds)) {
+      startExitAnimation();
+    }
+  }
+}
+
+function hitTestLabel(wx, wy) {
+  for (let i = 0; i < labelHitboxes.length; i++) {
+    const hb = labelHitboxes[i];
+    if (!hb) continue;
+    if (Math.abs(wx - hb.x) <= hb.w * 0.5 && Math.abs(wy - hb.y) <= hb.h * 0.5) return i;
+  }
+  return -1;
+}
+
+function hitTestTile(wx, wy) {
+  // Prioritize nearest tile by simple scan (counts are modest)
+  let bestIdx = -1;
+  let bestDist2 = Infinity;
+  for (let i = 0; i < mosaicTiles.length; i++) {
+    const t = mosaicTiles[i];
+    const half = t.size * 0.5;
+    if (wx >= t.x - half && wx <= t.x + half && wy >= t.y - half && wy <= t.y + half) {
+      const dx = wx - t.x;
+      const dy = wy - t.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestDist2) { bestDist2 = d2; bestIdx = i; }
+    }
+  }
+  return bestIdx;
+}
+
+function isPointInsideBounds(wx, wy, bounds) {
+  if (!bounds) return false;
+  return wx >= bounds.x1 && wx <= bounds.x2 && wy >= bounds.y1 && wy <= bounds.y2;
 }
