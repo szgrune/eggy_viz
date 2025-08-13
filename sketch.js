@@ -14,12 +14,14 @@ const CATEGORY_DISPLAY_ORDER = [
 
 let categoryCounts = {};
 let countsArray = [];
+
 let categoryColorsByIndex = [];
 let categoryCenterAngles = [];
 
 let mosaicTiles = [];
 let mosaicTileSize = 10;
 let mosaicComputedFor = { w: -1, h: -1 };
+
 
 function preload() {
   photoTable = loadTable('cat_analysis_ref_no_comparison.csv', 'csv', 'header');
@@ -35,18 +37,23 @@ function setup() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+
   mosaicComputedFor = { w: -1, h: -1 };
+
   redraw();
 }
 
 function countCategories() {
   categoryCounts = {};
+
   categoryColorsByIndex = CATEGORY_DISPLAY_ORDER.map(() => []);
+
   for (let label of CATEGORY_DISPLAY_ORDER) {
     categoryCounts[label] = 0;
   }
   if (photoTable) {
     for (let r = 0; r < photoTable.getRowCount(); r++) {
+
       const rawLabel = photoTable.getString(r, 'body_position');
       const normalized = normalizeBodyPosition(rawLabel);
       let hex = photoTable.getString(r, 'average_hex_color');
@@ -59,10 +66,12 @@ function countCategories() {
         categoryCounts['other'] += 1;
         const idx = CATEGORY_DISPLAY_ORDER.indexOf('other');
         if (idx >= 0) categoryColorsByIndex[idx].push(hex);
+
       }
     }
   }
   countsArray = CATEGORY_DISPLAY_ORDER.map(label => categoryCounts[label] || 0);
+
 
   // Shuffle color arrays for nicer mixing
   for (let i = 0; i < categoryColorsByIndex.length; i++) {
@@ -115,7 +124,9 @@ function draw() {
 
   const faceRadius = Math.min(width, height) * 0.28;
 
+
   ensureMosaicComputed(faceRadius);
+
   drawCatFaceBase(faceRadius);
 
   const tickRadius = faceRadius * 0.95;
@@ -126,6 +137,7 @@ function draw() {
   drawRadialSpikes(innerRadius, maxAdditional);
   drawCatFeatures(faceRadius);
 }
+
 
 function ensureMosaicComputed(r) {
   if (mosaicComputedFor.w === width && mosaicComputedFor.h === height && mosaicTiles.length > 0) return;
@@ -234,11 +246,13 @@ function computeMosaicTiles(r) {
   }
 }
 
+
 function drawCatFaceBase(r) {
   push();
   noStroke();
   fill(0, 0, 0, 20);
   ellipse(8, 18, r * 2.06, r * 2.06);
+
   pop();
 
   drawMosaicTiles();
@@ -340,6 +354,7 @@ function angularDistance(a, b) {
   return d > PI ? TWO_PI - d : d;
 }
 
+
 function drawEar(x, y, size, flip) {
   push();
   translate(x, y);
@@ -353,6 +368,7 @@ function drawEar(x, y, size, flip) {
   triangle(-w * 0.3, h * 0.3, 0, -h * 0.35, w * 0.3, h * 0.3);
   pop();
 }
+
 
 function drawEarOutline(x, y, size, flip) {
   push();
@@ -369,6 +385,7 @@ function drawEarOutline(x, y, size, flip) {
   triangle(-w * 0.3, h * 0.3, 0, -h * 0.35, w * 0.3, h * 0.3);
   pop();
 }
+
 
 function drawCatFeatures(r) {
   push();
