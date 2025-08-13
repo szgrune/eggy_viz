@@ -48,7 +48,6 @@ function getRadialCenterX() { return Math.floor(windowWidth / 2); }
 function getRadialCenterY() { return Math.floor(windowHeight / 2); }
 function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
 
-
 function preload() {
   photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
 }
@@ -155,6 +154,8 @@ function draw() {
 
   // Added: update animation progress if needed
   updateAnimationState();
+
+  //translate(width / 2, height / 2);
 
   const radialCX = getRadialCenterX();
   const radialCY = getRadialCenterY();
@@ -679,6 +680,7 @@ function prepareGridLayoutForCategory(catIndex) {
   items.sort((a, b) => hueFromHex(a.hex) - hueFromHex(b.hex));
 
   // Compute grid area on the right side of the screen
+
   const screenLeft = computeGridScreenLeft();
   const screenTop = 64; // room for title
   const screenRight = width - 24;
