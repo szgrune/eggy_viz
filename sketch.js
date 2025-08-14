@@ -50,7 +50,7 @@ function computeCanvasHeight() {
 }
 function getRadialCenterX() { return radialCenterXCurrent; }
 function getRadialCenterY() { return radialCenterYCurrent; }
-function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.05 + 64; }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.55 + 48; }
 
 // Added: overlay layout constants/helpers
 const OVERLAY_TITLE_Y = 32;
@@ -173,7 +173,7 @@ function draw() {
   // Compute face radius first, then place radial center toward the left
   const faceRadius = Math.min(windowWidth, windowHeight) * 0.28;
   currentFaceRadius = faceRadius;
-  radialCenterXCurrent = Math.max(12 + faceRadius, 12 + faceRadius);
+  radialCenterXCurrent = Math.ceil(24 + faceRadius * 1.5);
   radialCenterYCurrent = Math.floor(windowHeight / 2);
 
   translate(radialCenterXCurrent, radialCenterYCurrent);
