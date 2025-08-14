@@ -40,15 +40,14 @@ let gridLayout = null;      // { left, top, cols, rows, tileSize, bounds:{x1,y1,
 // Added: canvas sizing and positioning helpers
 let currentFaceRadius = 0;
 function computeCanvasWidth() {
-  const extraRight = Math.max(420, Math.floor(Math.min(windowWidth, windowHeight) * 0.9));
-  return windowWidth + extraRight;
+  return windowWidth;
 }
 function computeCanvasHeight() {
   return windowHeight;
 }
-function getRadialCenterX() { return Math.floor(windowWidth / 2); }
+function getRadialCenterX() { return Math.floor(windowWidth * 0.28); }
 function getRadialCenterY() { return Math.floor(windowHeight / 2); }
-function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 40; }
 
 // Added: overlay layout constants/helpers
 const OVERLAY_TITLE_Y = 32;
@@ -207,7 +206,8 @@ function computeMosaicTiles(r) {
   // Estimate a tile size so that we have at least as many cells as images
   const totalCount = countsArray.reduce((a, b) => a + b, 0);
   const circleArea = Math.PI * r * r;
-  mosaicTileSize = Math.max(4, Math.min(Math.sqrt(circleArea / Math.max(1, totalCount)) * 0.9, r * 0.12));
+  // Make tiles bigger to fill more whitespace while keeping them within boundaries
+  mosaicTileSize = Math.max(6, Math.min(Math.sqrt(circleArea / Math.max(1, totalCount)) * 1.0, r * 0.15));
   const step = mosaicTileSize; // grid step
 
   // Precompute ear triangles (world coordinates)
@@ -218,22 +218,71 @@ function computeMosaicTiles(r) {
   const jitter = step * 0.25;
   const candidates = [];
   let idxCounter = 0;
+  
+  // Define section boundaries for each category
+  const sectionAngles = [];
+  for (let i = 0; i < CATEGORY_DISPLAY_ORDER.length; i++) {
+    const startAngle = -HALF_PI + (i * TWO_PI) / CATEGORY_DISPLAY_ORDER.length;
+    const endAngle = -HALF_PI + ((i + 1) * TWO_PI) / CATEGORY_DISPLAY_ORDER.length;
+    const centerAngle = (startAngle + endAngle) / 2;
+    const sectionWidth = TWO_PI / CATEGORY_DISPLAY_ORDER.length;
+    sectionAngles.push({ start: startAngle, end: endAngle, center: centerAngle, width: sectionWidth });
+  }
+  
   for (let y = -bounds; y <= bounds; y += step) {
     for (let x = -bounds; x <= bounds; x += step) {
       const jx = x + (Math.random() * 2 - 1) * jitter;
       const jy = y + (Math.random() * 2 - 1) * jitter;
       if (!isRectInsideFace(jx, jy, step, r, ears)) continue;
+      
       const phi = Math.atan2(jy, jx);
-      const dists = categoryCenterAngles.map(a => angularDistance(phi, a));
-      let nearestCat = 0;
-      let nearestDist = dists[0];
-      for (let k = 1; k < dists.length; k++) {
-        if (dists[k] < nearestDist) {
-          nearestDist = dists[k];
-          nearestCat = k;
+      // Normalize angle to [0, TWO_PI] for easier comparison
+      let normalizedPhi = phi;
+      if (normalizedPhi < 0) normalizedPhi += TWO_PI;
+      
+      // Find which section this point belongs to
+      let sectionIndex = -1;
+      for (let i = 0; i < sectionAngles.length; i++) {
+        let start = sectionAngles[i].start;
+        let end = sectionAngles[i].end;
+        if (start < 0) start += TWO_PI;
+        if (end < 0) end += TWO_PI;
+        
+        if (start <= end) {
+          if (normalizedPhi >= start && normalizedPhi < end) {
+            sectionIndex = i;
+            break;
+          }
+        } else {
+          // Handle case where section crosses 0/2π boundary
+          if (normalizedPhi >= start || normalizedPhi < end) {
+            sectionIndex = i;
+            break;
+          }
         }
       }
-      candidates.push({ idx: idxCounter++, x: jx, y: jy, phi, dists, nearestDist, nearestCat });
+      
+      if (sectionIndex === -1) continue;
+      
+      const dists = categoryCenterAngles.map(a => angularDistance(phi, a));
+      let nearestCat = sectionIndex; // Force tiles to stay in their section
+      let nearestDist = dists[sectionIndex];
+      
+      // Calculate distance from section center (tick mark) for better positioning
+      const sectionCenter = sectionAngles[sectionIndex].center;
+      const distFromCenter = angularDistance(phi, sectionCenter);
+      
+      candidates.push({ 
+        idx: idxCounter++, 
+        x: jx, 
+        y: jy, 
+        phi, 
+        dists, 
+        nearestDist, 
+        nearestCat,
+        distFromCenter,
+        sectionCenter
+      });
     }
   }
 
@@ -246,7 +295,8 @@ function computeMosaicTiles(r) {
     byCat[c].push(candidates[i]);
   }
   for (let c = 0; c < byCat.length; c++) {
-    byCat[c].sort((a, b) => a.nearestDist - b.nearestDist);
+    // Sort by distance from section center (tick mark) for better centering
+    byCat[c].sort((a, b) => a.distFromCenter - b.distFromCenter);
   }
 
   // Remaining needs per category
@@ -254,7 +304,8 @@ function computeMosaicTiles(r) {
   const selectedByCat = CATEGORY_DISPLAY_ORDER.map(() => []);
   const taken = new Array(candidates.length).fill(false);
 
-  // Step 1: Fill using cells whose nearest category is this one
+  // Step 1: Fill using cells whose nearest category is this one (strict section-based)
+  // Prioritize tiles closer to the section center (tick mark) for better centering
   for (let c = 0; c < CATEGORY_DISPLAY_ORDER.length; c++) {
     const want = needs[c];
     if (want <= 0) continue;
@@ -269,16 +320,44 @@ function computeMosaicTiles(r) {
     }
   }
 
-  // Step 2: If still short, fill with closest remaining cells by angular distance to that category
+  // Step 2: If still short, fill with remaining cells in the same section
   for (let c = 0; c < CATEGORY_DISPLAY_ORDER.length; c++) {
     const want = needs[c];
-    if (want <= selectedByCat[c].length) continue;
+    if (selectedByCat[c].length >= want) continue;
+    
+    // Find remaining candidates in this category's section
     const remaining = [];
     for (let i = 0; i < candidates.length; i++) {
       const cand = candidates[i];
-      if (!taken[cand.idx]) remaining.push(cand);
+      if (!taken[cand.idx]) {
+        // Check if this candidate is in the right section
+        const phi = cand.phi;
+        let normalizedPhi = phi;
+        if (normalizedPhi < 0) normalizedPhi += TWO_PI;
+        
+        const startAngle = -HALF_PI + (c * TWO_PI) / CATEGORY_DISPLAY_ORDER.length;
+        let endAngle = -HALF_PI + ((c + 1) * TWO_PI) / CATEGORY_DISPLAY_ORDER.length;
+        let start = startAngle;
+        let end = endAngle;
+        if (start < 0) start += TWO_PI;
+        if (end < 0) end += TWO_PI;
+        
+        let inSection = false;
+        if (start <= end) {
+          inSection = (normalizedPhi >= start && normalizedPhi < end);
+        } else {
+          // Handle case where section crosses 0/2π boundary
+          inSection = (normalizedPhi >= start || normalizedPhi < end);
+        }
+        
+        if (inSection) {
+          remaining.push(cand);
+        }
+      }
     }
-    remaining.sort((a, b) => a.dists[c] - b.dists[c]);
+    
+    // Sort by distance from section center for better clustering and spacing
+    remaining.sort((a, b) => a.distFromCenter - b.distFromCenter);
     let p = 0;
     while (selectedByCat[c].length < want && p < remaining.length) {
       const cand = remaining[p++];
@@ -289,15 +368,46 @@ function computeMosaicTiles(r) {
     }
   }
 
-  // Build tiles with category colors
+  // Build tiles with category colors - ensure ALL tiles are created
   const colorIdx = CATEGORY_DISPLAY_ORDER.map(() => 0);
   for (let c = 0; c < CATEGORY_DISPLAY_ORDER.length; c++) {
+    const targetCount = countsArray[c]; // Use the actual count from countsArray
     const arr = selectedByCat[c];
-    for (let i = 0; i < arr.length; i++) {
+    
+    // Create tiles for ALL items in this category, not just selected candidates
+    for (let i = 0; i < targetCount; i++) {
       const idx = colorIdx[c] % Math.max(1, categoryColorsByIndex[c].length);
       const colorHex = categoryColorsByIndex[c][idx] || '#cccccc';
       colorIdx[c]++;
-      mosaicTiles.push({ x: arr[i].x, y: arr[i].y, size: mosaicTileSize, hex: colorHex, catIndex: c });
+      
+      // Generate random positions within each sector, with sector size proportional to tile count
+      const sectionIndex = c;
+      const totalSections = CATEGORY_DISPLAY_ORDER.length;
+      
+      // Calculate sector boundaries - each category gets a pie slice
+      const sectionStartAngle = -HALF_PI + (sectionIndex * TWO_PI) / totalSections;
+      const sectionEndAngle = -HALF_PI + ((sectionIndex + 1) * TWO_PI) / totalSections;
+      
+      // Use safe radius range that stays within circle boundaries
+      const minRadius = r * 0.05; // Reduced to allow tiles in center
+      const maxRadius = r * 0.85;
+      
+      // Generate completely random position within the sector
+      const randomRadius = minRadius + Math.random() * (maxRadius - minRadius);
+      const randomAngle = sectionStartAngle + Math.random() * (sectionEndAngle - sectionStartAngle);
+      
+      // Position tile
+      tileX = Math.cos(randomAngle) * randomRadius;
+      tileY = Math.sin(randomAngle) * randomRadius;
+      
+      // Apply rotation
+      const rotationAngle = -22.5 * (PI / 180);
+      const rotatedX = tileX * Math.cos(rotationAngle) - tileY * Math.sin(rotationAngle);
+      const rotatedY = tileX * Math.sin(rotationAngle) + tileY * Math.cos(rotationAngle);
+      tileX = rotatedX;
+      tileY = rotatedY;
+      
+              mosaicTiles.push({ x: tileX, y: tileY, size: mosaicTileSize, hex: colorHex, catIndex: c });
     }
   }
 }
@@ -693,8 +803,8 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
   items.sort((a, b) => hueFromHex(a.hex) - hueFromHex(b.hex));
 
   // Compute grid area on the right side of the screen
-  const screenLeft = computeGridScreenLeft();
-  const screenTop = (overrideScreenTop != null ? overrideScreenTop : (overlayBottomY() + OVERLAY_AFTER_TEXT_PADDING));
+  const screenLeft = computeGridScreenLeft() + 80; // Shift right by 80 pixels total
+  const screenTop = (overrideScreenTop != null ? overrideScreenTop : (overlayBottomY() + OVERLAY_AFTER_TEXT_PADDING + 85)); // Shift down by 85 pixels total (moved up 75px total)
   const screenRight = width - 24;
   const screenBottom = height - 36; // extra bottom padding
   const availW = Math.max(40, screenRight - screenLeft);
@@ -702,12 +812,10 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
 
   const n = Math.max(1, items.length);
   // Choose columns to roughly square the grid
-  let cols = Math.max(1, Math.floor(Math.sqrt(n * (availW / Math.max(1, availH)))));
-  cols = Math.min(cols, Math.max(1, Math.floor(availW / Math.max(6, mosaicTileSize))));
-  cols = Math.max(1, Math.min(cols, n));
+  const cols = 10; // Fixed width of 10 tiles for visual consistency
   const rows = Math.ceil(n / cols);
-  // Scale down slightly to ensure comfortable padding
-  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.9);
+  // Use consistent tile size across all grids for visual consistency
+  const tileSize = 35; // Fixed size that matches the 'Loaf' group tile size
 
   const leftWorld = screenLeft - getRadialCenterX();
   const topWorld = screenTop - getRadialCenterY();
@@ -727,23 +835,36 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
     }
   };
 
-  // Map from existing mosaic tiles of this category to target grid cells
-  const tileIndices = [];
-  for (let i = 0; i < mosaicTiles.length; i++) {
-    if (mosaicTiles[i].catIndex === catIndex) tileIndices.push(i);
-  }
+  // Map existing mosaic tiles to grid positions for animation, sorted by hue
   tileMappingByIndex = {};
-  for (let i = 0; i < items.length && i < tileIndices.length; i++) {
-    const idx = tileIndices[i];
+  
+  // Get all existing mosaic tiles of this category
+  const categoryTiles = [];
+  for (let i = 0; i < mosaicTiles.length; i++) {
+    if (mosaicTiles[i].catIndex === catIndex) {
+      categoryTiles.push(i);
+    }
+  }
+  
+  // Sort tiles by hue for beautiful color gradient
+  categoryTiles.sort((a, b) => {
+    const hueA = hueFromHex(mosaicTiles[a].hex);
+    const hueB = hueFromHex(mosaicTiles[b].hex);
+    return hueA - hueB;
+  });
+  
+  // Map each existing mosaic tile to a grid position
+  for (let i = 0; i < categoryTiles.length; i++) {
     const col = i % cols;
     const row = Math.floor(i / cols);
     const toX = leftWorld + col * tileSize + tileSize * 0.5;
     const toY = topWorld + row * tileSize + tileSize * 0.5;
-    tileMappingByIndex[idx] = {
+    
+    tileMappingByIndex[categoryTiles[i]] = {
       toX,
       toY,
       toSize: tileSize,
-      targetHex: items[i].hex
+      targetHex: mosaicTiles[categoryTiles[i]].hex // Keep original hex color
     };
   }
 }
@@ -792,9 +913,9 @@ function drawGridOverlay() {
   const title = CATEGORY_DISPLAY_ORDER[sel];
   const stats = selfieStatsByCategory[sel] || { total: 0, yes: 0, no: 0, unknown: 0 };
 
-  const screenLeft = computeGridScreenLeft();
+  const screenLeft = computeGridScreenLeft() + 80; // Shift right by 80 pixels total to match grid
   const titleX = screenLeft;
-  const titleY = OVERLAY_TITLE_Y;
+  const titleY = OVERLAY_TITLE_Y + 85; // Shift down by 85 pixels total to match grid (moved up 75px total)
 
   textFont('Futura');
   textAlign(LEFT, TOP);
