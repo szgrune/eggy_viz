@@ -9,7 +9,6 @@ const CATEGORY_DISPLAY_ORDER = [
   'Belly up',
   'Pretzel',
   'Laying on side',
-  'Other'
 ];
 
 let categoryCounts = {};
@@ -40,17 +39,16 @@ let gridLayout = null;      // { left, top, cols, rows, tileSize, bounds:{x1,y1,
 
 // Added: canvas sizing and positioning helpers
 let currentFaceRadius = 0;
-let radialCenterXCurrent = 0;
-let radialCenterYCurrent = 0;
 function computeCanvasWidth() {
-  return windowWidth;
+  const extraRight = Math.max(420, Math.floor(Math.min(windowWidth, windowHeight) * 0.9));
+  return windowWidth + extraRight;
 }
 function computeCanvasHeight() {
   return windowHeight;
 }
-function getRadialCenterX() { return radialCenterXCurrent; }
-function getRadialCenterY() { return radialCenterYCurrent; }
-function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.55 + 48; }
+function getRadialCenterX() { return Math.floor(windowWidth / 2); }
+function getRadialCenterY() { return Math.floor(windowHeight / 2); }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
 
 // Added: overlay layout constants/helpers
 const OVERLAY_TITLE_Y = 32;
@@ -107,8 +105,8 @@ function countCategories() {
         const idx = CATEGORY_DISPLAY_ORDER.indexOf(normalized);
         if (idx >= 0) categoryColorsByIndex[idx].push(hex);
       } else {
-        categoryCounts['other'] += 1;
-        const idx = CATEGORY_DISPLAY_ORDER.indexOf('other');
+        //categoryCounts['other'] += 1;
+        //const idx = CATEGORY_DISPLAY_ORDER.indexOf('other');
         if (idx >= 0) categoryColorsByIndex[idx].push(hex);
 
       }
@@ -151,7 +149,7 @@ function shuffleArrayInPlace(arr) {
 
 function normalizeBodyPosition(value) {
   const s = (value || '').toString().trim().toLowerCase();
-  if (!s) return 'Other';
+  //if (!s) return 'Other';
   if (s.includes('standing') && s.includes('hind')) return 'Standing up on hind legs';
   if (s.includes('standing') && (s.includes('all fours') || s.includes('fours'))) return 'Standing on all fours';
   if (s.includes('loaf')) return 'Loaf';
@@ -160,8 +158,8 @@ function normalizeBodyPosition(value) {
   if (s.includes('belly')) return 'Belly up';
   if (s.includes('pretzel')) return 'Pretzel';
   if ((s.includes('laying') && s.includes('side')) || s.includes('on side')) return 'Laying on side';
-  if (s === 'other') return 'Other';
-  return 'Other';
+  //if (s === 'other') return 'Other';
+  //return 'Other';
 }
 
 function draw() {
@@ -170,13 +168,15 @@ function draw() {
   // Added: update animation progress if needed
   updateAnimationState();
 
-  // Compute face radius first, then place radial center toward the left
+  //translate(width / 2, height / 2);
+
+  const radialCX = getRadialCenterX();
+  const radialCY = getRadialCenterY();
+  translate(radialCX, radialCY);
+
   const faceRadius = Math.min(windowWidth, windowHeight) * 0.28;
   currentFaceRadius = faceRadius;
-  radialCenterXCurrent = Math.ceil(24 + faceRadius * 1.5);
-  radialCenterYCurrent = Math.floor(windowHeight / 2);
 
-  translate(radialCenterXCurrent, radialCenterYCurrent);
 
   ensureMosaicComputed(faceRadius);
 
@@ -452,7 +452,7 @@ function drawCatFeatures(r) {
   noStroke();
   fill(180, 190, 129, 200);
   const eyeY = -r * 0.1;
-  const eyeX = r * 0.5;
+  const eyeX = r * 0.3;
   const eyeW = r * 0.18;
   const eyeH = r * 0.22;
   ellipse(-eyeX, eyeY, eyeW, eyeH);
@@ -706,8 +706,8 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
   cols = Math.min(cols, Math.max(1, Math.floor(availW / Math.max(6, mosaicTileSize))));
   cols = Math.max(1, Math.min(cols, n));
   const rows = Math.ceil(n / cols);
-  // Scale down a bit more to guarantee fit
-  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.7);
+  // Scale down slightly to ensure comfortable padding
+  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.9);
 
   const leftWorld = screenLeft - getRadialCenterX();
   const topWorld = screenTop - getRadialCenterY();
