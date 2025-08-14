@@ -40,16 +40,17 @@ let gridLayout = null;      // { left, top, cols, rows, tileSize, bounds:{x1,y1,
 
 // Added: canvas sizing and positioning helpers
 let currentFaceRadius = 0;
+let radialCenterXCurrent = 0;
+let radialCenterYCurrent = 0;
 function computeCanvasWidth() {
-  const extraRight = Math.max(420, Math.floor(Math.min(windowWidth, windowHeight) * 0.9));
-  return windowWidth + extraRight;
+  return windowWidth;
 }
 function computeCanvasHeight() {
   return windowHeight;
 }
-function getRadialCenterX() { return Math.floor(windowWidth / 2); }
-function getRadialCenterY() { return Math.floor(windowHeight / 2); }
-function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.4 + 48; }
+function getRadialCenterX() { return radialCenterXCurrent; }
+function getRadialCenterY() { return radialCenterYCurrent; }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.05 + 64; }
 
 // Added: overlay layout constants/helpers
 const OVERLAY_TITLE_Y = 32;
@@ -169,15 +170,13 @@ function draw() {
   // Added: update animation progress if needed
   updateAnimationState();
 
-  //translate(width / 2, height / 2);
-
-  const radialCX = getRadialCenterX();
-  const radialCY = getRadialCenterY();
-  translate(radialCX, radialCY);
-
+  // Compute face radius first, then place radial center toward the left
   const faceRadius = Math.min(windowWidth, windowHeight) * 0.28;
   currentFaceRadius = faceRadius;
+  radialCenterXCurrent = Math.max(12 + faceRadius, 12 + faceRadius);
+  radialCenterYCurrent = Math.floor(windowHeight / 2);
 
+  translate(radialCenterXCurrent, radialCenterYCurrent);
 
   ensureMosaicComputed(faceRadius);
 
@@ -707,8 +706,8 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
   cols = Math.min(cols, Math.max(1, Math.floor(availW / Math.max(6, mosaicTileSize))));
   cols = Math.max(1, Math.min(cols, n));
   const rows = Math.ceil(n / cols);
-  // Scale down slightly to ensure comfortable padding
-  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.9);
+  // Scale down a bit more to guarantee fit
+  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.7);
 
   const leftWorld = screenLeft - getRadialCenterX();
   const topWorld = screenTop - getRadialCenterY();
