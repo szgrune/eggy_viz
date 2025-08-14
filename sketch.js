@@ -64,7 +64,7 @@ function overlayBottomY() {
 }
 
 function preload() {
-  photoTable = loadTable('cat_analysis_noref_human.csv', 'csv', 'header');
+  photoTable = loadTable('cat_analysis_8cats.csv', 'csv', 'header');
 }
 
 function setup() {
