@@ -1,5 +1,6 @@
 let photoTable;
 let hexToImageMap = {}; // Store mapping from hex values to individual photo images
+let bodyPositionImages = {}; // Store body position images for tick mark labels
 let hoveredImage = null; // Currently displayed hover image
 let hoveredImagePos = { x: 0, y: 0 }; // Position for hover image
 
@@ -70,6 +71,27 @@ function preload() {
     // Load individual photos after CSV is ready
     loadIndividualPhotos();
   });
+  
+  // Load body position images for tick mark labels
+  loadBodyPositionImages();
+}
+
+// Load body position images for tick mark labels
+function loadBodyPositionImages() {
+  console.log('Loading body position images for tick marks...');
+  
+  for (let category of CATEGORY_DISPLAY_ORDER) {
+    const imageName = category + '.png'; // Use PNG format as specified
+    bodyPositionImages[category] = loadImage('body_position_drawings/' + imageName, 
+      // Success callback
+      () => console.log('Successfully loaded body position image for:', category),
+      // Error callback
+      () => {
+        console.warn('Failed to load body position image for:', category);
+        bodyPositionImages[category] = null;
+      }
+    );
+  }
 }
 
 // Load individual photos and create hex-to-image mapping
@@ -736,25 +758,61 @@ function drawTicksAndLabels(radius) {
     const ly = Math.sin(angle) * labelRadius;
     push();
     translate(lx*1.33, ly*1.33);
-    //rotate(angle);
+    
     const label = CATEGORY_DISPLAY_ORDER[i];
-    noStroke();
-    fill(0);
-    textFont("Futura");
-    text(shortenLabel(label), 0, 0);
+    const bodyImage = bodyPositionImages[label];
+    
+    if (bodyImage) {
+      // Draw the body position image instead of text, preserving aspect ratio
+      const baseSize = Math.max(40, radius * 0.5); // Base size for scaling
+      const imgAspect = bodyImage.width / bodyImage.height;
+      
+      let displayWidth, displayHeight;
+      if (imgAspect > 1) {
+        // Landscape image - use baseSize for width
+        displayWidth = baseSize;
+        displayHeight = baseSize / imgAspect;
+      } else {
+        // Portrait or square image - use baseSize for height
+        displayHeight = baseSize;
+        displayWidth = baseSize * imgAspect;
+      }
+      
+      imageMode(CENTER);
+      image(bodyImage, 0, 0, displayWidth, displayHeight);
+    } else {
+      // Fallback to text if image not loaded
+      noStroke();
+      fill(0);
+      textFont("Futura");
+      text(shortenLabel(label), 0, 0);
+    }
+    
     pop();
 
-    // Added: compute a conservative hitbox around rendered text (centered at lx*1.33, ly*1.33)
-    const ts = Math.max(10, radius * 0.09);
-    const shortLabel = shortenLabel(CATEGORY_DISPLAY_ORDER[i]);
-    const lines = shortLabel.split('\n');
-    let maxW = 0;
-    for (let k = 0; k < lines.length; k++) {
-      maxW = Math.max(maxW, textWidth(lines[k]));
+    // Added: compute hitbox around rendered image (centered at lx*1.33, ly*1.33)
+    const baseSize = Math.max(40, radius * 0.5);
+    const currentBodyImage = bodyPositionImages[CATEGORY_DISPLAY_ORDER[i]];
+    
+    let hitboxWidth, hitboxHeight;
+    if (currentBodyImage) {
+      // Calculate hitbox based on actual image dimensions
+      const imgAspect = currentBodyImage.width / currentBodyImage.height;
+      if (imgAspect > 1) {
+        hitboxWidth = baseSize + 10;
+        hitboxHeight = (baseSize / imgAspect) + 10;
+      } else {
+        hitboxWidth = (baseSize * imgAspect) + 10;
+        hitboxHeight = baseSize + 10;
+      }
+    } else {
+      // Fallback to square hitbox if no image
+      const hitboxSize = baseSize + 10;
+      hitboxWidth = hitboxSize;
+      hitboxHeight = hitboxSize;
     }
-    const h = lines.length * ts * 1.15;
-    const w = maxW;
-    labelHitboxes[i] = { x: lx*1.33, y: ly*1.33, w: w + 10, h: h + 8 };
+    
+    labelHitboxes[i] = { x: lx*1.33, y: ly*1.33, w: hitboxWidth, h: hitboxHeight };
   }
   pop();
 }
