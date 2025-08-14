@@ -414,14 +414,12 @@ function computeMosaicTiles(r) {
 
 
 function drawCatFaceBase(r) {
-  /*
+  // Draw background circle with same color as cat ears
   push();
   noStroke();
-  fill(0, 0, 0, 20);
-  ellipse(8, 18, r * 2.06, r * 2.06);
-
+  fill(253, 250, 246); // Same color as cat ears
+  ellipse(0, 0, r * 1.85, r * 1.85); // Full face circle
   pop();
-  */
 
   // Overdraw ear outlines to keep silhouette readable above mosaic
   const earOffsetX = r * 0.62;
@@ -544,8 +542,8 @@ function drawEarOutline(x, y, size, flip) {
   push();
   translate(x, y);
   rotate(flip ? 0.2 : -0.2);
-  fill(40, 40, 40, 140);
-  stroke(40, 40, 40, 140);
+  noStroke()
+  fill(136, 134, 133);
   //strokeWeight(Math.max(1, size * 0.04));
   const h = size * 0.9;
   const w = size * 0.7;
