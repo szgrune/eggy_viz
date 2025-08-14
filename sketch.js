@@ -1,4 +1,7 @@
 let photoTable;
+let hexToImageMap = {}; // Store mapping from hex values to individual photo images
+let hoveredImage = null; // Currently displayed hover image
+let hoveredImagePos = { x: 0, y: 0 }; // Position for hover image
 
 const CATEGORY_DISPLAY_ORDER = [
   'Standing on all fours',
@@ -61,7 +64,96 @@ function overlayBottomY() {
 }
 
 function preload() {
-  photoTable = loadTable('cat_analysis_8cats.csv', 'csv', 'header');
+  // Load the CSV table first, then load individual photos once it's ready
+  photoTable = loadTable('cat_analysis_8cats.csv', 'csv', 'header', () => {
+    console.log('CSV loaded successfully, now loading individual photos...');
+    // Load individual photos after CSV is ready
+    loadIndividualPhotos();
+  });
+}
+
+// Load individual photos and create hex-to-image mapping
+function loadIndividualPhotos() {
+  console.log('loadIndividualPhotos called');
+  console.log('photoTable:', photoTable);
+  
+  if (!photoTable) {
+    console.error('photoTable is null or undefined');
+    return;
+  }
+  
+  console.log('Photo table row count:', photoTable.getRowCount());
+  console.log('Loading individual photos...');
+  
+  // Get the first row to see what columns are available
+  if (photoTable.getRowCount() > 0) {
+    const firstRow = photoTable.getRow(0);
+    const columnNames = Object.keys(firstRow.obj);
+    console.log('Available CSV columns:', columnNames);
+    
+    // Try different possible column names for the filename
+    const possibleFilenameColumns = ['filename', 'image_filename', 'file', 'image', 'photo', 'img'];
+    let filenameColumn = null;
+    
+    // Find the filename column
+    for (const col of possibleFilenameColumns) {
+      if (columnNames.includes(col)) {
+        filenameColumn = col;
+        console.log('Found filename column:', col);
+        break;
+      }
+    }
+    
+    if (!filenameColumn) {
+      console.warn('No filename column found. Available columns:', columnNames);
+      return;
+    }
+    
+    let loadedCount = 0;
+    let totalCount = 0;
+    
+    console.log('Starting to process CSV rows...');
+    
+    // Load all images from the CSV rows
+    for (let r = 0; r < photoTable.getRowCount(); r++) {
+      const hex = sanitizeHex(photoTable.getString(r, 'average_hex_color'));
+      const filename = photoTable.getString(r, filenameColumn);
+      
+      console.log(`Row ${r}: hex="${hex}", filename="${filename}"`);
+      
+      if (filename && hex) {
+        totalCount++;
+        console.log(`Loading image ${totalCount}: eggy_photos/${filename} for hex: ${hex}`);
+        
+        // Load the image from eggy_photos folder
+        loadImage('eggy_photos/' + filename, 
+          // Success callback
+          (img) => {
+            console.log(`✅ Successfully loaded image for hex ${hex}:`, filename);
+            hexToImageMap[hex] = img;
+            loadedCount++;
+            console.log(`Loaded ${loadedCount}/${totalCount} images. Hashmap size: ${Object.keys(hexToImageMap).length}`);
+            
+            if (loadedCount === totalCount) {
+              console.log(`🎉 All images loaded! Hashmap contains ${Object.keys(hexToImageMap).length} entries`);
+              console.log('Hashmap keys (hex values):', Object.keys(hexToImageMap));
+            }
+          },
+          // Error callback
+          (err) => {
+            console.error(`❌ Failed to load image: eggy_photos/${filename} for hex: ${hex}`, err);
+            hexToImageMap[hex] = null;
+          }
+        );
+      } else {
+        console.warn(`Row ${r}: Missing hex or filename - hex: "${hex}", filename: "${filename}"`);
+      }
+    }
+    
+    console.log(`Total rows to process: ${totalCount}`);
+  } else {
+    console.error('Photo table has no rows!');
+  }
 }
 
 function setup() {
@@ -70,6 +162,21 @@ function setup() {
   textFont('sans-serif');
   countCategories();
   noLoop();
+  
+  // Enable mouse tracking for hover effects
+  loop(); // Enable continuous drawing for mouse tracking
+  
+  // Check if images loaded after a delay
+  setTimeout(() => {
+    console.log('🔍 Setup complete - checking image loading status:');
+    console.log('  - Hashmap size:', Object.keys(hexToImageMap).length);
+    console.log('  - Photo table rows:', photoTable ? photoTable.getRowCount() : 'null');
+    if (Object.keys(hexToImageMap).length === 0) {
+      console.warn('⚠️ No images loaded! This might indicate a loading issue.');
+    } else {
+      console.log('✅ Images loaded successfully!');
+    }
+  }, 3000); // Check after 3 seconds to allow for image loading
 }
 
 function windowResized() {
@@ -191,6 +298,12 @@ function draw() {
 
   // Added: overlay for grid view (titles/counts)
   drawGridOverlay();
+  
+  // Update hover state every frame for continuous detection
+  updateHoverState();
+  
+  // Draw hover image if available
+  drawHoverImage();
 }
 
 
@@ -779,7 +892,8 @@ function updateAnimationState() {
       interactionState.animating = false;
       interactionState.mode = 'grid';
       interactionState.progress = 1;
-      noLoop();
+      // Keep loop running for hover detection in grid mode
+      // noLoop(); // Removed to keep hover detection active
     }
   } else if (interactionState.animationDirection === -1) {
     interactionState.progress = 1 - e;
@@ -802,7 +916,7 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
 
   // Compute grid area on the right side of the screen
   const screenLeft = computeGridScreenLeft() + 80; // Shift right by 80 pixels total
-  const screenTop = (overrideScreenTop != null ? overrideScreenTop : (overlayBottomY() + OVERLAY_AFTER_TEXT_PADDING + 85)); // Shift down by 85 pixels total (moved up 75px total)
+  const screenTop = (overrideScreenTop != null ? overrideScreenTop : (overlayBottomY() + OVERLAY_AFTER_TEXT_PADDING + 85)); // Shift down by 45 pixels total (moved up 155px total)
   const screenRight = width - 24;
   const screenBottom = height - 36; // extra bottom padding
   const availW = Math.max(40, screenRight - screenLeft);
@@ -894,6 +1008,39 @@ function getTileRenderParams(i, t) {
   return { x, y, size, hex, visible };
 }
 
+function drawHoverImage() {
+  if (!hoveredImage) {
+    console.log('No hover image to draw');
+    return;
+  }
+  
+  console.log('Drawing hover image at:', hoveredImagePos);
+  
+  push();
+  resetMatrix(); // Use screen coordinates
+  
+  // Calculate dimensions maintaining aspect ratio
+  const maxSize = 180; // Maximum dimension (1.5x larger than before)
+  const imgAspect = hoveredImage.width / hoveredImage.height;
+  
+  let displayWidth, displayHeight;
+  if (imgAspect > 1) {
+    // Landscape image
+    displayWidth = maxSize;
+    displayHeight = maxSize / imgAspect;
+  } else {
+    // Portrait image
+    displayHeight = maxSize;
+    displayWidth = maxSize * imgAspect;
+  }
+  
+  // Draw image at cursor position with proper aspect ratio
+  imageMode(CENTER);
+  image(hoveredImage, hoveredImagePos.x, hoveredImagePos.y, displayWidth, displayHeight);
+  
+  pop();
+}
+
 function drawGridOverlay() {
   const sel = interactionState.selectedCategoryIndex;
   if (sel < 0 || !gridLayout) return;
@@ -913,7 +1060,7 @@ function drawGridOverlay() {
 
   const screenLeft = computeGridScreenLeft() + 80; // Shift right by 80 pixels total to match grid
   const titleX = screenLeft;
-  const titleY = OVERLAY_TITLE_Y + 85; // Shift down by 85 pixels total to match grid (moved up 75px total)
+  const titleY = OVERLAY_TITLE_Y + 45; // Shift down by 45 pixels total to match grid (moved up 115px total)
 
   textFont('Futura');
   textAlign(LEFT, TOP);
@@ -924,13 +1071,13 @@ function drawGridOverlay() {
 
   textStyle(NORMAL);
   textSize(18);
-  const totalLine = (stats.total || 0) + ' images in ' + title.toLowerCase() + ' position';
+  const totalLine = (stats.total || 0) + ' images in ' + title.toLowerCase() + ' position\n' + 'Hover over a tile to see the image';
   text(totalLine, titleX, titleY + OVERLAY_TITLE_OFFSET + OVERLAY_BLOCK_SPACING);
 
   const s1 = 'Selfies: ' + (stats.yes || 0);
   const s2 = 'Non-Selfies: ' + (stats.no || 0);
   const s3 = 'No Selfie Data: ' + (stats.unknown || 0);
-  const firstLineY = titleY + OVERLAY_TITLE_OFFSET + OVERLAY_BLOCK_SPACING + OVERLAY_LINE_HEIGHT;
+  const firstLineY = titleY + OVERLAY_TITLE_OFFSET*2 + OVERLAY_BLOCK_SPACING + OVERLAY_LINE_HEIGHT;
   text(s1, titleX, firstLineY);
   text(s2, titleX, firstLineY + OVERLAY_LINE_HEIGHT);
   text(s3, titleX, firstLineY + OVERLAY_LINE_HEIGHT * 2);
@@ -975,6 +1122,113 @@ function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+// Mouse tracking for hover effects (called from draw loop for continuous checking)
+function updateHoverState() {
+  if (interactionState.mode === 'grid' && gridLayout) {
+    // Use screen coordinates directly for simpler detection
+    const gridScreenLeft = getRadialCenterX() + gridLayout.left;
+    const gridScreenTop = getRadialCenterY() + gridLayout.top;
+    const gridScreenRight = gridScreenLeft + gridLayout.cols * gridLayout.tileSize;
+    const gridScreenBottom = gridScreenTop + gridLayout.rows * gridLayout.tileSize;
+    
+    // Check if mouse is over the grid area using screen coordinates
+    if (mouseX >= gridScreenLeft && mouseX <= gridScreenRight && 
+        mouseY >= gridScreenTop && mouseY <= gridScreenBottom) {
+      
+      // Find which specific tile is being hovered over
+      const hoveredTile = findHoveredTile(mouseX, mouseY);
+      
+      if (hoveredTile && hoveredTile.hex) {
+        // Log the filename for this hex value to console
+        logFilenameForHex(hoveredTile.hex);
+        
+        // Look up the specific image for this tile's hex value
+        const specificImage = hexToImageMap[hoveredTile.hex];
+        
+        if (specificImage) {
+          hoveredImage = specificImage;
+          hoveredImagePos = { x: mouseX + 30, y: mouseY - 30 }; // Offset from cursor
+        } else {
+          // No specific image found, don't show anything
+          hoveredImage = null;
+        }
+      } else {
+        hoveredImage = null;
+      }
+    } else {
+      hoveredImage = null;
+    }
+  } else {
+    hoveredImage = null;
+  }
+}
+
+// Keep mouseMoved for p5.js compatibility, but it's not the main hover logic
+function mouseMoved() {
+  // This function is called by p5.js when mouse moves, but we handle hover in draw loop
+}
+
+// Log the filename for a specific hex value by looking it up in the CSV
+function logFilenameForHex(hex) {
+  if (!photoTable || !hex) return;
+  
+  // Look for the hex value in the CSV
+  for (let r = 0; r < photoTable.getRowCount(); r++) {
+    const csvHex = sanitizeHex(photoTable.getString(r, 'average_hex_color'));
+    if (csvHex === hex) {
+      // Found the matching hex, get the filename
+      const filename = photoTable.getString(r, 'filename') || 
+                      photoTable.getString(r, 'image_filename') || 
+                      photoTable.getString(r, 'file') || 
+                      photoTable.getString(r, 'image') || 
+                      photoTable.getString(r, 'photo') || 
+                      photoTable.getString(r, 'img');
+      
+      if (filename) {
+        console.log('Hex:', hex, '-> Filename:', filename);
+      } else {
+        console.log('Hex:', hex, '-> No filename found');
+      }
+      break;
+    }
+  }
+}
+
+// Find which specific tile is being hovered over in grid mode
+function findHoveredTile(mouseX, mouseY) {
+  if (!gridLayout || !tileMappingByIndex) return null;
+  
+  // Calculate grid screen coordinates
+  const gridScreenLeft = getRadialCenterX() + gridLayout.left;
+  const gridScreenTop = getRadialCenterY() + gridLayout.top;
+  
+  // Convert mouse position to grid coordinates
+  const gridX = Math.floor((mouseX - gridScreenLeft) / gridLayout.tileSize);
+  const gridY = Math.floor((mouseY - gridScreenTop) / gridLayout.tileSize);
+  
+  // Check if we're within grid bounds
+  if (gridX < 0 || gridX >= gridLayout.cols || gridY < 0 || gridY >= gridLayout.rows) {
+    return null;
+  }
+  
+  // Calculate the index in the items array for this grid position
+  const itemIndex = gridY * gridLayout.cols + gridX;
+  const category = CATEGORY_DISPLAY_ORDER[interactionState.selectedCategoryIndex];
+  const items = itemsByCategory[interactionState.selectedCategoryIndex] || [];
+  
+  if (itemIndex >= 0 && itemIndex < items.length) {
+    const item = items[itemIndex];
+    return {
+      hex: item.hex,
+      gridX: gridX,
+      gridY: gridY,
+      itemIndex: itemIndex
+    };
+  }
+  
+  return null;
+}
+
 // Hit-testing and interaction
 function mousePressed() {
   // Convert to world coordinates (after draw translates by width/2,height/2)
@@ -998,7 +1252,7 @@ function mousePressed() {
     }
   } else if (interactionState.mode === 'grid') {
     // Click outside the grid bounds returns to radial
-    if (!isPointInsideBounds(wx, wy, gridLayout && gridLayout.bounds)) {
+    if (!isPointInsideBounds(wx, wy, gridLayout.bounds)) {
       startExitAnimation();
     }
   }
