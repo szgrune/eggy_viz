@@ -50,7 +50,7 @@ function computeCanvasHeight() {
 }
 function getRadialCenterX() { return radialCenterXCurrent; }
 function getRadialCenterY() { return radialCenterYCurrent; }
-function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.15 + 40; }
+function computeGridScreenLeft() { return getRadialCenterX() + currentFaceRadius * 1.05 + 64; }
 
 // Added: overlay layout constants/helpers
 const OVERLAY_TITLE_Y = 32;
@@ -173,7 +173,7 @@ function draw() {
   // Compute face radius first, then place radial center toward the left
   const faceRadius = Math.min(windowWidth, windowHeight) * 0.28;
   currentFaceRadius = faceRadius;
-  radialCenterXCurrent = Math.max(24 + faceRadius, 24 + faceRadius);
+  radialCenterXCurrent = Math.max(12 + faceRadius, 12 + faceRadius);
   radialCenterYCurrent = Math.floor(windowHeight / 2);
 
   translate(radialCenterXCurrent, radialCenterYCurrent);
@@ -707,7 +707,7 @@ function prepareGridLayoutForCategory(catIndex, overrideScreenTop) {
   cols = Math.max(1, Math.min(cols, n));
   const rows = Math.ceil(n / cols);
   // Scale down a bit more to guarantee fit
-  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.8);
+  const tileSize = Math.floor(Math.min(availW / cols, availH / rows) * 0.7);
 
   const leftWorld = screenLeft - getRadialCenterX();
   const topWorld = screenTop - getRadialCenterY();
